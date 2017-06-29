@@ -1,5 +1,6 @@
 from FilePreprocessor import *
 from DocEmbeddings import *
+from gensim.models.doc2vec import *
 """
 The methods should only take the training folder as input and return dicts with roles, vectors and labels
 """
@@ -105,10 +106,19 @@ def _get_labels(json_obj, unique_only=False):
         if 'RATING_EXPERT' not in k:
             continue
         else:
-            if v.lower() == 'irrelevant':
+
+            if v.lower() == 'irrelevant' or v.lower() == 'neutral':
                 labels.append(0)
-            else:
+            elif v.lower() == 'highly relevant':
                 labels.append(1)
+            elif v.lower() == 'relevant':
+                labels.append(0.5)
+            else:
+                if len(v) == 0:
+                    continue
+                else:
+                    print v
+                    raise Exception
     if unique_only:
         return list(set(labels))
     else:
@@ -127,11 +137,76 @@ def _write_out_dict_as_pos_neg_file(feature_dict, pos_neg_file):
             out.write(k+'\t'+str(element['vector'])+'\t'+str(element['label'])+'\n')
     out.close()
 
+def build_role_dict_from_training_only(singular_training_json):
+    """
+    The 0 labels will be converted to -1.
+    :param singular_training_json:
+    :return:
+    """
+    list_of_texts = json.load(codecs.open(singular_training_json, 'r', 'utf-8'))
+    answer = dict()
+    for element in list_of_texts:
+        element['ROLE'] = element['ROLE'].lower()
+        if element['ROLE'] not in answer:
+            answer[element['ROLE']] = dict()
+        labels = _get_labels(element)
+        for label in labels:
+            if label == 0:
+                label = -1
+            if label not in answer[element['ROLE']]:
+                answer[element['ROLE']][label] = list()
+                answer[element['ROLE']][label].append('training-'+element['ID'])
+    return answer
+
+def compute_doc2vec_score(doc2vec_model, label_dict, ref_id):
+    # if -1 not in label_dict:
+    #     return 1
+    # elif 1 not in label_dict:
+    #     return 0
+    # else:
+        neg_score = 0.0
+        pos_score = 0.0
+        pos_score2 = 0.0
+        length = 0
+        if 1 in label_dict:
+            for pos in label_dict[1]:
+                pos_score += doc2vec_model.docvecs.similarity(ref_id, pos)
+                length += 1
+        # pos_score = pos_score/len(label_dict[1])
+        if -1 in label_dict:
+            for neg in label_dict[-1]:
+                neg_score = neg_score - doc2vec_model.docvecs.similarity(ref_id, neg)
+                length += 1
+        if 0.5 in label_dict:
+            for p in label_dict[0.5]:
+                pos_score2 = pos_score2 + (0.5*doc2vec_model.docvecs.similarity(ref_id, p))
+                length += 1
+
+        return (((pos_score+neg_score+pos_score2)/length)+1)/2
+
+
+def exhaustive_nn_on_test_data(singular_training_json, doc_embedding_model, singular_testing_json, output_file):
+    model = Doc2Vec.load(doc_embedding_model)
+    out = codecs.open(output_file, 'w', 'utf-8')
+    role_dict = build_role_dict_from_training_only(singular_training_json)
+    with codecs.open(singular_testing_json, 'r', 'utf-8') as f:
+        for line in f:
+            obj = json.loads(line)
+            id = obj['tags'][0]
+            role = obj['tags'][1]
+            score = compute_doc2vec_score(model, role_dict[role], id)
+            out.write(id+','+str(score)+'\n')
+
+
+    out.close()
+
 
 
 
 
 # path = '/Users/mayankkejriwal/datasets/FEIII17/dec-16-data/FEIIIY2_csv/'
+# exhaustive_nn_on_test_data(path+'Training/all-singular.json', path+'all-singular-doc2vec-20dims',path+'all-singular-testing-taggeddoc.jl',path+'scores-dry-run-3.csv')
+# build_role_dict_from_training_only(path+'Training/all-singular.json')
 # convert_jsons_to_pos_neg_script(path+'Training/partitions-by-role-singular/90-10/', path+'word2vec_raw_training',singular_flag=True)
 # d = generate_raw_features(path+'Training/', path+'word2vec_raw', path+'raw_training_vectors.json',True,path+'raw_pos_neg.tsv')
 # _analyze_feature_dict(d)

@@ -167,12 +167,60 @@ def partition_single_json(input_file, output_train, output_test, train_percent):
     out_train.close()
     out_test.close()
 
-def convert_raw_text_to_meta_text(raw_text_file, meta_text_file):
-    # TO IMPLEMENT
-    pass
+def process_string(string):
+    answer = list()
+    for char in string.lower():
+        if char.isdigit():
+            answer.append('#')
+        elif char.isalnum():
+            answer.append(char)
+        else:
+            answer.append(' ')
+    return ''.join(answer)
+
+
+def convert_raw_text_to_tagged_doc_file(raw_text_file, meta_text_file, filemode='working'):
+    """take the all-singular.json and preprocess it into a tagged doc. preprocess puncts and nums convert puncts
+    to space, and each num to #. Also, preprocess IDs so they are prepended by 'training-' and 'working-'
+    respectively. Only test IDs remain unscathed.
+    """
+    list_of_texts = json.load(codecs.open(raw_text_file, 'r', 'utf-8'))
+    plural = ['underwriters', 'insurers', 'servicers', 'affiliates', 'guarantors', 'sellers', 'trustees', 'agents',
+              'counterparties', 'issuers']
+    singular = ['underwriter', 'insurer', 'servicer', 'affiliate', 'guarantor', 'seller', 'trustee', 'agent',
+                'counterparty', 'issuer']
+    out = codecs.open(meta_text_file, 'w', 'utf-8')
+    count = 1
+    for element in list_of_texts:
+        if 'THREE_SENTENCES' in element and element['THREE_SENTENCES'] is not None:
+            text = tokenize_string(process_string(element['THREE_SENTENCES']))
+            obj = dict()
+            obj['tags'] = list()
+            if filemode =='training':
+                obj['tags'].append('training-'+element['ID'])
+            elif filemode == 'working':
+                obj['tags'].append('working-'+str(count))
+                count += 1
+            elif filemode == 'testing':
+                obj['tags'].append(str(element['UNIQUE_ID']))
+            else:
+                raise Exception
+            if element['ROLE'].lower() in singular:
+                obj['tags'].append(element['ROLE'].lower())
+            elif element['ROLE'].lower() in plural:
+                i = plural.index(element['ROLE'].lower())
+                obj['tags'].append(singular[i])
+            else:
+                raise Exception
+
+            obj['words'] = text
+            json.dump(obj, out)
+            out.write('\n')
+    out.close()
 
 
 # path = '/Users/mayankkejriwal/datasets/FEIII17/dec-16-data/FEIIIY2_csv/'
+# convert_raw_text_to_tagged_doc_file(path+'Testing.json', path+'all-singular-testing-taggeddoc.jl', 'testing')
 # train_word2vec(path+'training_working_sentences_raw.txt', path+'word2vec_raw_training_working')
 # word2vec_custom_tester(path+'word2vec_raw', ['regulators'])
 # assign_ids_to_training_files(path+'Training/by-company-without-id/', path+'Training/by-company-with-id/')
